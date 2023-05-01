@@ -44,7 +44,7 @@ class CausalSelfAttention(nn.Module):
         # output projection
         self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         # regularization
-        self.attn_overwrite = config.attn_overwrite
+        self.attn_override = config.attn_override
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
         self.n_head = config.n_head
@@ -73,9 +73,9 @@ class CausalSelfAttention(nn.Module):
             y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
         else:
             # manual implementation of attention
-            if self.attn_overwrite > 0.01:                                                      ## +
+            if self.attn_override > 0.01:                                                       ## +
                 # (B, nh, T, 1, hs) - (B, nh, 1, T, hs) ->  (B, nh, T, T, hs)                   ## +
-                att = -(q.unsqueeze(-2) - k.unsqueeze(-3)).pow(2) / self.attn_overwrite         ## +
+                att = -(q.unsqueeze(-2) - k.unsqueeze(-3)).pow(2) / self.attn_override          ## +
                 att = att.masked_fill(self.bias[:,:,:T,:T].unsqueeze(-1) == 0, float('-inf'))   ## + 
                 att = F.softmax(att, dim=-2).mean(-1)                                           ## +
             else:
@@ -128,7 +128,7 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
-    attn_overwrite: float = 0  # if > 0, activates custom attention and divides by att_overwrite
+    attn_override: float = 0  # if > 0, activates custom attention and divides by att_overwrite
 
 class GPT(nn.Module):
 
