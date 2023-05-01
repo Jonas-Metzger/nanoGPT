@@ -44,6 +44,7 @@ class CausalSelfAttention(nn.Module):
         # output projection
         self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         # regularization
+        self.attn_overwrite = config.attn_overwrite
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
         self.n_head = config.n_head
@@ -72,9 +73,15 @@ class CausalSelfAttention(nn.Module):
             y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
         else:
             # manual implementation of attention
-            att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-            att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
-            att = F.softmax(att, dim=-1)
+            if self.attn_overwrite > 0.01:                                                      ## +
+                # (B, nh, T, 1, hs) - (B, nh, 1, T, hs) ->  (B, nh, T, T, hs)                   ## +
+                att = -(q.unsqueeze(-2) - k.unsqueeze(-3)).pow(2) / self.attn_overwrite         ## +
+                att = att.masked_fill(self.bias[:,:,:T,:T].unsqueeze(-1) == 0, float('-inf'))   ## + 
+                att = F.softmax(att, dim=-2).mean(-1)                                           ## +
+            else:
+                att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+                att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
+                att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
@@ -121,6 +128,7 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
+    attn_overwrite: float = 0  # if > 0, activates custom attention and divides by att_overwrite
 
 class GPT(nn.Module):
 
